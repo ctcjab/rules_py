@@ -74,6 +74,7 @@ bzl_library(
         ":py_wheel",
         "@bazel_skylib//lib:new_sets",
         "@bazel_skylib//lib:types",
+        "@rules_python//python:defs_bzl",
     ],
 )
 
