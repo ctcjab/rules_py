@@ -7,11 +7,12 @@ without binding them to a particular version of that package.
 load("@bazel_skylib//lib:new_sets.bzl", "sets")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 
-# rules_python's PyInfo, referenced ONLY in the `deps` provider constraint so
-# native `@rules_python` targets are still accepted as deps. rules_py emits and
-# reads its own PyInfo (py_info.bzl).
+# rules_python's PyInfo, referenced in the `deps` provider constraint so native
+# `@rules_python` targets (e.g. py_proto_library) are accepted as deps. rules_py
+# emits its own PyInfo; it reads a dep's sources/imports from either provider via
+# the accessors below.
 load("@rules_python//python:defs.bzl", RulesPythonPyInfo = "PyInfo")
-load("//py/private:providers.bzl", "PyVirtualInfo", "PyWheelsInfo")
+load("//py/private:providers.bzl", "PyWheelsInfo")
 load("//py/private:pth.bzl", "make_imports_depset")
 load("//py/private:py_info.bzl", "PyInfo")
 
@@ -24,13 +25,15 @@ def _make_instrumented_files_info(ctx):
     )
 
 def _make_srcs_depset(ctx):
+    # `deps` accepts rules_py targets (PyInfo) and native @rules_python targets
+    # (RulesPythonPyInfo); both expose `transitive_sources`.
     return depset(
         order = "postorder",
         direct = ctx.files.srcs,
         transitive = [
-            target[PyInfo].transitive_sources
+            (target[PyInfo] if PyInfo in target else target[RulesPythonPyInfo]).transitive_sources
             for target in ctx.attr.deps
-            if PyInfo in target
+            if PyInfo in target or RulesPythonPyInfo in target
         ],
     )
 
@@ -39,16 +42,17 @@ def _make_virtual_depset(ctx):
         order = "postorder",
         direct = getattr(ctx.attr, "virtual_deps", []),
         transitive = [
-            target[PyVirtualInfo].dependencies
+            target[PyInfo].virtual_dependencies
             for target in ctx.attr.deps
-            if PyVirtualInfo in target
+            if PyInfo in target
         ],
     )
 
 def _make_resolved_virtual_depset(target):
     transitive = [target[DefaultInfo].files]
-    if PyInfo in target:
-        transitive.append(target[PyInfo].transitive_sources)
+    if PyInfo in target or RulesPythonPyInfo in target:
+        info = target[PyInfo] if PyInfo in target else target[RulesPythonPyInfo]
+        transitive.append(info.transitive_sources)
 
     return depset(
         order = "postorder",
@@ -63,9 +67,9 @@ def _make_virtual_resolutions_depset(ctx):
             for k, v in ctx.attr.resolutions.items()
         ],
         transitive = [
-            target[PyVirtualInfo].resolutions
+            target[PyInfo].virtual_resolutions
             for target in ctx.attr.deps
-            if PyVirtualInfo in target
+            if PyInfo in target
         ],
     )
 
@@ -89,8 +93,9 @@ def _resolve_virtuals(ctx):
         v_srcs.append(_make_resolved_virtual_depset(resolution.target))
         v_runfiles.append(resolution.target[DefaultInfo].default_runfiles.files)
 
-        if PyInfo in resolution.target:
-            v_imports.append(resolution.target[PyInfo].imports)
+        if PyInfo in resolution.target or RulesPythonPyInfo in resolution.target:
+            info = resolution.target[PyInfo] if PyInfo in resolution.target else resolution.target[RulesPythonPyInfo]
+            v_imports.append(info.imports)
 
     missing = sets.to_list(sets.difference(sets.make(virtual), sets.make(seen.keys())))
     if len(missing) > 0:
@@ -166,10 +171,8 @@ def _py_library_impl(ctx):
         PyInfo(
             imports = imports,
             transitive_sources = transitive_srcs,
-        ),
-        PyVirtualInfo(
-            dependencies = virtuals,
-            resolutions = resolutions,
+            virtual_dependencies = virtuals,
+            virtual_resolutions = resolutions,
         ),
         PyWheelsInfo(
             wheels = wheels,
@@ -184,7 +187,12 @@ _attrs = dict({
     ),
     "deps": attr.label_list(
         doc = "Targets that produce Python code, commonly `py_library` rules.",
-        providers = [[PyInfo], [RulesPythonPyInfo], [PyVirtualInfo], [CcInfo]],
+        # This attribute — shared by py_library, py_binary and py_test — is the
+        # public surface that supports rules_python interop: a dep may carry
+        # rules_py's PyInfo, or native @rules_python's PyInfo (e.g. a
+        # py_proto_library). RulesPythonPyInfo appears here and at the reads in
+        # this file for exactly that reason; rules_py never emits it.
+        providers = [[PyInfo], [RulesPythonPyInfo], [CcInfo]],
     ),
     "data": attr.label_list(
         doc = """Runtime dependencies of the program.

@@ -49,6 +49,7 @@ bzl_library(
     deps = [
         ":py_info",
         "@bazel_lib//lib:transitions",
+        "@rules_python//python:defs_bzl",
         "@tar.bzl//tar:mtree",
         "@tar.bzl//tar:tar",
     ],
@@ -60,6 +61,7 @@ bzl_library(
     deps = [
         ":py_info",
         "@bazel_skylib//lib:paths",
+        "@rules_python//python:defs_bzl",
     ],
 )
 
@@ -124,13 +126,13 @@ bzl_library(
     ],
 )
 
+# keep
 bzl_library(
     name = "py_info",
     srcs = ["py_info.bzl"],
     # PyInfo is re-exported as public API from //py:defs.bzl, so its bzl_library
     # is public too, allowing sibling trees (e.g. //uv) to depend on it.
     visibility = ["//visibility:public"],
-    deps = ["@rules_python//python:defs_bzl"],
 )
 
 bzl_library(
