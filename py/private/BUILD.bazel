@@ -48,8 +48,8 @@ bzl_library(
     srcs = ["py_image_layer.bzl"],
     deps = [
         ":py_info",
+        ":py_info_interop",
         "@bazel_lib//lib:transitions",
-        "@rules_python//python:defs_bzl",
         "@tar.bzl//tar:mtree",
         "@tar.bzl//tar:tar",
     ],
@@ -59,9 +59,8 @@ bzl_library(
     name = "pth",
     srcs = ["pth.bzl"],
     deps = [
-        ":py_info",
+        ":py_info_interop",
         "@bazel_skylib//lib:paths",
-        "@rules_python//python:defs_bzl",
     ],
 )
 
@@ -72,11 +71,11 @@ bzl_library(
         ":providers",
         ":pth",
         ":py_info",
+        ":py_info_interop",
         ":py_semantics",
         ":py_wheel",
         "@bazel_skylib//lib:new_sets",
         "@bazel_skylib//lib:types",
-        "@rules_python//python:defs_bzl",
     ],
 )
 
@@ -133,6 +132,15 @@ bzl_library(
     # PyInfo is re-exported as public API from //py:defs.bzl, so its bzl_library
     # is public too, allowing sibling trees (e.g. //uv) to depend on it.
     visibility = ["//visibility:public"],
+)
+
+bzl_library(
+    name = "py_info_interop",
+    srcs = ["py_info_interop.bzl"],
+    deps = [
+        ":py_info",
+        "@rules_python//python:defs_bzl",
+    ],
 )
 
 bzl_library(

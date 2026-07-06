@@ -6,15 +6,10 @@ without binding them to a particular version of that package.
 
 load("@bazel_skylib//lib:new_sets.bzl", "sets")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
-
-# rules_python's PyInfo, referenced in the `deps` provider constraint so native
-# `@rules_python` targets (e.g. py_proto_library) are accepted as deps. rules_py
-# emits its own PyInfo; it reads a dep's sources/imports from either provider via
-# the accessors below.
-load("@rules_python//python:defs.bzl", RulesPythonPyInfo = "PyInfo")
 load("//py/private:providers.bzl", "PyWheelsInfo")
 load("//py/private:pth.bzl", "make_imports_depset")
 load("//py/private:py_info.bzl", "PyInfo")
+load("//py/private:py_info_interop.bzl", "RulesPythonPyInfo", "get_py_info", "has_py_info")
 
 def _make_instrumented_files_info(ctx):
     return coverage_common.instrumented_files_info(
@@ -25,15 +20,15 @@ def _make_instrumented_files_info(ctx):
     )
 
 def _make_srcs_depset(ctx):
-    # `deps` accepts rules_py targets (PyInfo) and native @rules_python targets
-    # (RulesPythonPyInfo); both expose `transitive_sources`.
+    # `deps` may carry rules_py's PyInfo or native @rules_python's; both expose
+    # `transitive_sources`. See py_info_interop.bzl.
     return depset(
         order = "postorder",
         direct = ctx.files.srcs,
         transitive = [
-            (target[PyInfo] if PyInfo in target else target[RulesPythonPyInfo]).transitive_sources
+            get_py_info(target).transitive_sources
             for target in ctx.attr.deps
-            if PyInfo in target or RulesPythonPyInfo in target
+            if has_py_info(target)
         ],
     )
 
@@ -50,8 +45,8 @@ def _make_virtual_depset(ctx):
 
 def _make_resolved_virtual_depset(target):
     transitive = [target[DefaultInfo].files]
-    if PyInfo in target or RulesPythonPyInfo in target:
-        info = target[PyInfo] if PyInfo in target else target[RulesPythonPyInfo]
+    info = get_py_info(target)
+    if info:
         transitive.append(info.transitive_sources)
 
     return depset(
@@ -93,8 +88,8 @@ def _resolve_virtuals(ctx):
         v_srcs.append(_make_resolved_virtual_depset(resolution.target))
         v_runfiles.append(resolution.target[DefaultInfo].default_runfiles.files)
 
-        if PyInfo in resolution.target or RulesPythonPyInfo in resolution.target:
-            info = resolution.target[PyInfo] if PyInfo in resolution.target else resolution.target[RulesPythonPyInfo]
+        info = get_py_info(resolution.target)
+        if info:
             v_imports.append(info.imports)
 
     missing = sets.to_list(sets.difference(sets.make(virtual), sets.make(seen.keys())))
@@ -190,8 +185,8 @@ _attrs = dict({
         # This attribute — shared by py_library, py_binary and py_test — is the
         # public surface that supports rules_python interop: a dep may carry
         # rules_py's PyInfo, or native @rules_python's PyInfo (e.g. a
-        # py_proto_library). RulesPythonPyInfo appears here and at the reads in
-        # this file for exactly that reason; rules_py never emits it.
+        # py_proto_library). Reads go through py_info_interop.bzl's accessors;
+        # rules_py never emits RulesPythonPyInfo.
         providers = [[PyInfo], [RulesPythonPyInfo], [CcInfo]],
     ),
     "data": attr.label_list(
